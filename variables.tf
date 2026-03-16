@@ -1,12 +1,6 @@
-variable "project_name" {
-  description = "Name of the project, used for resource naming"
+variable "name" {
+  description = "Name prefix for all resources"
   type        = string
-}
-
-variable "environment" {
-  description = "Environment name (e.g., dev, staging, prod)"
-  type        = string
-  default     = "prod"
 }
 
 variable "vpc_id" {

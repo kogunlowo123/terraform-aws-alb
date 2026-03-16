@@ -1,13 +1,14 @@
 ###############################################################################
 # Security Group
 ###############################################################################
-resource "aws_security_group" "alb" {
-  name        = "${local.name_prefix}-alb-sg"
-  description = "Security group for ${local.name_prefix} ALB"
+
+resource "aws_security_group" "this" {
+  name        = "${var.name}-alb-sg"
+  description = "Security group for ${var.name} ALB"
   vpc_id      = var.vpc_id
 
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-alb-sg"
+  tags = merge(var.tags, {
+    Name = "${var.name}-alb-sg"
   })
 }
 
@@ -17,19 +18,19 @@ resource "aws_security_group_rule" "http_ingress" {
   to_port           = 80
   protocol          = "tcp"
   cidr_blocks       = var.ingress_cidr_blocks
-  security_group_id = aws_security_group.alb.id
+  security_group_id = aws_security_group.this.id
   description       = "Allow HTTP inbound"
 }
 
 resource "aws_security_group_rule" "https_ingress" {
-  count = local.enable_https ? 1 : 0
+  count = var.certificate_arn != null ? 1 : 0
 
   type              = "ingress"
   from_port         = 443
   to_port           = 443
   protocol          = "tcp"
   cidr_blocks       = var.ingress_cidr_blocks
-  security_group_id = aws_security_group.alb.id
+  security_group_id = aws_security_group.this.id
   description       = "Allow HTTPS inbound"
 }
 
@@ -41,7 +42,7 @@ resource "aws_security_group_rule" "sg_ingress" {
   to_port                  = 65535
   protocol                 = "tcp"
   source_security_group_id = each.value
-  security_group_id        = aws_security_group.alb.id
+  security_group_id        = aws_security_group.this.id
   description              = "Allow traffic from security group ${each.value}"
 }
 
@@ -51,19 +52,20 @@ resource "aws_security_group_rule" "egress" {
   to_port           = 0
   protocol          = "-1"
   cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = aws_security_group.alb.id
+  security_group_id = aws_security_group.this.id
   description       = "Allow all outbound"
 }
 
 ###############################################################################
 # S3 Bucket for Access Logs
 ###############################################################################
+
 resource "aws_s3_bucket" "access_logs" {
   count = var.enable_access_logs ? 1 : 0
 
-  bucket = "${local.name_prefix}-alb-access-logs"
+  bucket = "${var.name}-alb-access-logs"
 
-  tags = local.common_tags
+  tags = var.tags
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "access_logs" {
@@ -107,11 +109,12 @@ resource "aws_s3_bucket_policy" "access_logs" {
 ###############################################################################
 # Application Load Balancer
 ###############################################################################
+
 resource "aws_lb" "this" {
-  name               = "${local.name_prefix}-alb"
+  name               = "${var.name}-alb"
   internal           = var.internal
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
+  security_groups    = [aws_security_group.this.id]
   subnets            = var.subnet_ids
 
   idle_timeout                     = var.idle_timeout
@@ -128,18 +131,19 @@ resource "aws_lb" "this" {
     }
   }
 
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-alb"
+  tags = merge(var.tags, {
+    Name = "${var.name}-alb"
   })
 }
 
 ###############################################################################
 # Target Groups
 ###############################################################################
+
 resource "aws_lb_target_group" "this" {
   count = length(var.target_groups)
 
-  name                 = "${local.name_prefix}-${var.target_groups[count.index].name}"
+  name                 = "${var.name}-${var.target_groups[count.index].name}"
   port                 = var.target_groups[count.index].port
   protocol             = var.target_groups[count.index].protocol
   vpc_id               = var.vpc_id
@@ -167,8 +171,8 @@ resource "aws_lb_target_group" "this" {
     }
   }
 
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-${var.target_groups[count.index].name}"
+  tags = merge(var.tags, {
+    Name = "${var.name}-${var.target_groups[count.index].name}"
   })
 
   lifecycle {
@@ -179,16 +183,17 @@ resource "aws_lb_target_group" "this" {
 ###############################################################################
 # Listeners
 ###############################################################################
+
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = local.enable_https ? "redirect" : "forward"
+    type = var.certificate_arn != null ? "redirect" : "forward"
 
     dynamic "redirect" {
-      for_each = local.enable_https ? [1] : []
+      for_each = var.certificate_arn != null ? [1] : []
       content {
         port        = "443"
         protocol    = "HTTPS"
@@ -196,16 +201,16 @@ resource "aws_lb_listener" "http" {
       }
     }
 
-    target_group_arn = local.enable_https ? null : (
+    target_group_arn = var.certificate_arn != null ? null : (
       length(aws_lb_target_group.this) > 0 ? aws_lb_target_group.this[0].arn : null
     )
   }
 
-  tags = local.common_tags
+  tags = var.tags
 }
 
 resource "aws_lb_listener" "https" {
-  count = local.enable_https ? 1 : 0
+  count = var.certificate_arn != null ? 1 : 0
 
   load_balancer_arn = aws_lb.this.arn
   port              = 443
@@ -218,14 +223,15 @@ resource "aws_lb_listener" "https" {
     target_group_arn = length(aws_lb_target_group.this) > 0 ? aws_lb_target_group.this[0].arn : null
   }
 
-  tags = local.common_tags
+  tags = var.tags
 }
 
 ###############################################################################
 # Additional Certificates
 ###############################################################################
+
 resource "aws_lb_listener_certificate" "this" {
-  for_each = local.enable_https ? toset(var.additional_certificate_arns) : toset([])
+  for_each = var.certificate_arn != null ? toset(var.additional_certificate_arns) : toset([])
 
   listener_arn    = aws_lb_listener.https[0].arn
   certificate_arn = each.value
@@ -234,15 +240,16 @@ resource "aws_lb_listener_certificate" "this" {
 ###############################################################################
 # Listener Rules
 ###############################################################################
+
 resource "aws_lb_listener_rule" "this" {
   count = length(var.listener_rules)
 
-  listener_arn = local.enable_https ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+  listener_arn = var.certificate_arn != null ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
   priority     = var.listener_rules[count.index].priority
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.this[local.target_group_map[var.listener_rules[count.index].target_group_key]].arn
+    target_group_arn = aws_lb_target_group.this[index(var.target_groups[*].name, var.listener_rules[count.index].target_group_key)].arn
   }
 
   dynamic "condition" {
@@ -272,12 +279,13 @@ resource "aws_lb_listener_rule" "this" {
     }
   }
 
-  tags = local.common_tags
+  tags = var.tags
 }
 
 ###############################################################################
 # WAF Association
 ###############################################################################
+
 resource "aws_wafv2_web_acl_association" "this" {
   count = var.waf_arn != null ? 1 : 0
 
