@@ -117,10 +117,10 @@ resource "aws_lb" "this" {
   security_groups    = [aws_security_group.this.id]
   subnets            = var.subnet_ids
 
-  idle_timeout                     = var.idle_timeout
-  enable_deletion_protection       = var.enable_deletion_protection
-  enable_http2                     = var.enable_http2
-  drop_invalid_header_fields       = var.drop_invalid_header_fields
+  idle_timeout               = var.idle_timeout
+  enable_deletion_protection = var.enable_deletion_protection
+  enable_http2               = var.enable_http2
+  drop_invalid_header_fields = var.drop_invalid_header_fields
 
   dynamic "access_logs" {
     for_each = var.enable_access_logs ? [1] : []

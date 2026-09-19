@@ -52,8 +52,8 @@ module "test" {
     }
   ]
 
-  enable_access_logs    = false
-  ingress_cidr_blocks   = ["10.0.0.0/8"]
+  enable_access_logs  = false
+  ingress_cidr_blocks = ["10.0.0.0/8"]
 
   tags = {
     Test = "true"
